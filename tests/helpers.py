@@ -1,70 +1,60 @@
 import random
 import string
+
+import allure
 import requests
 
-
-def assert_successful_response(response: requests.Response, required_fields=None):
-    """Проверяет, что ответ успешен и содержит JSON с нужными полями.
-
-    Параметры:
-        response — объект ответа requests
-        required_fields — список ключей, которые обязаны быть в теле
-
-    Если статус не 200 — падает с телом ответа.
-    Если Content-Type не JSON — падает с понятным сообщением.
-    Если тело пустое или поле отсутствует — падает с указанием поля.
-    """
-    assert response.status_code == 200, (
-        f"Ожидался статус 200, получен {response.status_code}. "
-        f"Ответ: {response.text}"
-    )
-
-    content_type = response.headers.get("Content-Type", "")
-    assert content_type.startswith("application/json"), (
-        f"Ожидался JSON, получен Content-Type: '{content_type}'. "
-        f"Статус: {response.status_code}, тело: {response.text[:500]}"
-    )
-
-    body = response.json()
-    assert body, (
-        f"Тело ответа пустое при статусе 200. "
-        f"Content-Type: {content_type}"
-    )
-
-    if required_fields:
-        for field in required_fields:
-            assert field in body, (
-                f"В ответе отсутствует обязательное поле '{field}'. "
-                f"Тело: {body}"
-            )
-
-    return body
-
-
-from faker import Faker
-
-faker = Faker("ru_RU")
-
-
-def generate_email():
-    """Генерирует уникальный email для каждого теста."""
-    return f"test_{faker.word()}_{random.randint(1000, 9999)}@yandex.ru"
-
-
-def generate_password():
-    """Генерирует случайный пароль."""
-    return faker.password(length=10)
-
-
-def generate_name():
-    """Генерирует случайное имя."""
-    return faker.first_name()
+from urls import REGISTER_URL, LOGIN_URL, ORDERS_URL, DELETE_USER_URL
+from data import MAX_LOG_LENGTH
 
 
 def generate_user_data():
-    """Возвращает полный набор валидных данных пользователя."""
+    """Генерирует случайные данные для создания пользователя."""
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     return {
-        "email": generate_email(),
-        "password": generate_password(),
-        "name": generate_name(),
+        "email": f"test_{suffix}@test.com",
+        "password": f"pass_{suffix}",
+        "name": f"User_{suffix}",
     }
+
+
+@allure.step("Регистрация пользователя")
+def register_user(payload):
+    return requests.post(REGISTER_URL, json=payload)
+
+
+@allure.step("Авторизация пользователя")
+def login_user(payload):
+    return requests.post(LOGIN_URL, json=payload)
+
+
+@allure.step("Создание заказа")
+def create_order(payload, headers=None):
+    return requests.post(ORDERS_URL, json=payload, headers=headers)
+
+
+@allure.step("Удаление пользователя")
+def delete_user(headers):
+    return requests.delete(DELETE_USER_URL, headers=headers)
+
+
+@allure.step("Проверка и парсинг JSON-ответа")
+def assert_json(response):
+    content_type = response.headers.get("Content-Type", "")
+    assert content_type.startswith("application/json"), (
+        f"Ожидался JSON, но получен Content-Type: {content_type}.\n"
+        f"Метод: {response.request.method}, URL: {response.url}\n"
+        f"Тело ответа: {response.text[:MAX_LOG_LENGTH]}"
+    )
+    body = response.json()
+    assert body is not None, f"Тело ответа пустое: {response.text[:MAX_LOG_LENGTH]}"
+    return body
+
+
+@allure.step("Проверка поля success")
+def assert_success(body, expected):
+    assert "success" in body, f"В ответе отсутствует поле success: {body}"
+    assert body["success"] is expected, (
+        f"Ожидался success={expected}, получен: {body['success']}. Тело: {body}"
+    )
+
